@@ -8,7 +8,7 @@ import time
 #from nn import NeuralNetwork
 from nn2 import NeuralNetwork
 
-results_filename = "results_" + str(time.time()) + ".csv"
+results_filename = "logs/results_" + str(time.time()) + ".csv"
 fp = open(results_filename, 'a')
 fp.write("generation,total,avg,max\n")
 
@@ -55,10 +55,11 @@ class Insect:
         self.health = 200
         self.cntrLived = 0
         self.isAlive = True
-        self.fitness = 1
+        self.fitness = 0
         self.brain = NeuralNetwork(1, 1, 4)
         self.currentTargetIdx = 0
         self.desiredMatingSlots = 0
+        self.minDistances = []
 
     def think(self, target):
         target_orientation = math.atan2(target['point']['y'] - self.y, target['point']['x'] - self.x)
@@ -86,9 +87,12 @@ class Insect:
         desired_target = self.find_closest_target()
         if desired_target['point']:
             pygame.draw.aaline(screen, (255, 0, 0), (self.x, self.y), (desired_target['point']['x'], desired_target['point']['y']))
+            if len(self.minDistances) < self.currentTargetIdx + 1:
+                self.minDistances.append(int(desired_target['distance']))
+            if desired_target['distance'] < self.minDistances[self.currentTargetIdx]:
+                desired_target['distance'] = self.minDistances[self.currentTargetIdx]
             if desired_target['distance'] < self.size:
                 self.health += 40
-                self.fitness += 1
                 self.currentTargetIdx += 1
 
         (gas, steer) = self.think(desired_target)
@@ -178,7 +182,7 @@ for _ in range(num_insects):
 
 
 running = True
-isRunningFast = False 
+isRunningFast = True
 
 while running:
     for event in pygame.event.get():
@@ -200,10 +204,37 @@ while running:
         if i.isAlive:
             numAlive += 1
 
-    # evaluate fitness phase
+    # end current generation
     if numAlive == 0:
+        # evaluate fitness phase
         (total_fitness, max_fitness, avg_fitness, total_mating_slots) = (0, 1, 0, 0)
+
+        # simplify min distances array
+        min_distances = [None] * 99
+        max_distances = [None] * 99
         for i in insects:
+            for j in range(len(lines)):
+                if len(i.minDistances) >= j + 1 and min_distances[j] == None:
+                    min_distances[j] = i.minDistances[j]
+                if len(i.minDistances) >= j + 1 and min_distances[j] > i.minDistances[j]:
+                    min_distances[j] = i.minDistances[j]
+                if len(i.minDistances) >= j + 1 and max_distances[j] == None:
+                    max_distances[j] = i.minDistances[j]
+                if len(i.minDistances) >= j + 1 and max_distances[j] < i.minDistances[j]:
+                    max_distances[j] = i.minDistances[j]
+
+        print("Min distances: ", min_distances)
+        print("Max distances", max_distances)
+
+        for i in insects:
+            i.fitness = 1
+            # calculate fitness for every attemptet target
+            for idx, minval in enumerate(i.minDistances):
+                renormalized = int(renormalize(minval, (max_distances[idx]+1, min_distances[idx]-1), (0, 10)))
+                thisfitness = renormalized * 10 ** idx
+                # print("Renormalized", minval,"=>",renormalized, "fit", thisfitness)
+                i.fitness += thisfitness
+
             total_fitness += i.fitness
             if i.fitness >= max_fitness:
                 max_fitness = i.fitness
@@ -226,9 +257,10 @@ while running:
         if total_mating_slots > 0:
             for i in insects:
                 mating_slots = round(max_mating_pool * i.desiredMatingSlots / total_mating_slots)
-                print("Individual {} ({}/{}) fed: {} lived: {}, desired mating slots: {} actual: {}".format(
-                    i.id, i.parentAid, i.parentBid, i.fitness, i.cntrLived, i.desiredMatingSlots, mating_slots
+                print("Individual {} ({}/{}) fitness: {} targetIdx: {}, desired mating slots: {} actual: {}".format(
+                    i.id, i.parentAid, i.parentBid, i.fitness, i.currentTargetIdx, i.desiredMatingSlots, mating_slots
                     ))
+
                 for c in range(mating_slots):
                     mating_pool.append(i)
         print("Generation: {} fitness total={} avg={} max={}".format(generation_cntr, total_fitness, avg_fitness, max_fitness))
