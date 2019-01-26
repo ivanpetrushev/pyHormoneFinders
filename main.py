@@ -17,10 +17,15 @@ screen = pygame.display.set_mode((width, height))
 pygame.display.set_caption('Insects simulation')
 
 lines = [
-        [20, int(height/2)],
-        [100, 200],
-        [300, 200],
-        [350, 400]
+        [220, int(height/2)],
+        [250, 280],
+        [350, 220],
+        [500, 200],
+        [550, 400],
+        [620, 440],
+        [650, 500],
+        [670, 520],
+        [700, 600],
         ]
 
 def renormalize(n, range1, range2):
@@ -40,23 +45,25 @@ class Insect:
         self.parentAid = ''
         self.parentBid = ''
         # random starting point within 10px of lines[0]
-        self.x = lines[0][0] + random.randint(0, 20) - 10
-        self.y = lines[0][1] + random.randint(0, 20) - 10
+#        self.x = lines[0][0] + random.randint(0, 20) - 10
+#        self.y = lines[0][1] + random.randint(0, 20) - 10
+        self.x = random.randint(0, width)
+        self.y = random.randint(0, height)
         self.color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
         self.orientation = 2 * math.pi * random.random()
         self.size = 10
-        self.health = 500
+        self.health = 200
         self.cntrLived = 0
         self.isAlive = True
         self.fitness = 1
         self.brain = NeuralNetwork(1, 1, 4)
-        self.currentTargetIdx = 1
+        self.currentTargetIdx = 0
+        self.desiredMatingSlots = 0
 
     def think(self, target):
         target_orientation = math.atan2(target['point']['y'] - self.y, target['point']['x'] - self.x)
-        target_orientation += math.pi 
-        target_orientation = renormalize(target_orientation, [0,  2 * math.pi], [0, 1])
-        distance = renormalize(target['distance'], [0, 1131], [0, 1])
+#        target_orientation += math.pi 
+        target_orientation = renormalize(target_orientation, [- math.pi,  math.pi], [0, 1])
         inp_vec = [target_orientation]
         result = self.brain.run(inp_vec)
 #        print('inp', inp_vec, 'result', result)
@@ -64,7 +71,8 @@ class Insect:
         gas = 5 # constant gas for now
         steer = result[0]
 #        gas = renormalize(gas, [0, 1], [0, 15])
-        steer = renormalize(steer, [0, 1], [-15, 15]) 
+        steer = renormalize(steer, [0, 1], [- math.pi, math.pi]) 
+#        print("IN: {} OUT: {}".format(target_orientation, steer))
         return (gas, steer)
 
     def update(self):
@@ -79,7 +87,6 @@ class Insect:
         if desired_target['point']:
             pygame.draw.aaline(screen, (255, 0, 0), (self.x, self.y), (desired_target['point']['x'], desired_target['point']['y']))
             if desired_target['distance'] < self.size:
-                print("HIT!")
                 self.health += 40
                 self.fitness += 1
                 self.currentTargetIdx += 1
@@ -91,21 +98,11 @@ class Insect:
         if gas <= 3:
             return
 
-        pseudo_target_x = self.x + int(math.cos(self.orientation) * gas)
-        pseudo_target_y = self.y + int(math.sin(self.orientation) * gas)
+        self.orientation = steer
+        target_x = self.x + int(math.cos(self.orientation) * gas)
+        target_y = self.y + int(math.sin(self.orientation) * gas)
 #        print("{}, {} (gas: {}, steer: {}, ori: {}) ----> {}, {}".format(self.x, self.y, gas, steer, self.orientation, pseudo_target_x, pseudo_target_y))
 
-        # steer is based on perpendicular vector with controlled length
-        st_dir = self.orientation + math.pi / 2
-        target_x = pseudo_target_x + int(math.cos(st_dir) * steer)
-        target_y = pseudo_target_y + int(math.sin(st_dir) * steer)
-
-        # steer is based on controlled angle
-#        target_x = self.x + int(math.cos(steer) * 5)
-#        target_y = self.y + int(math.sin(steer) * 5)
-
-
-        self.orientation = math.atan2(target_y - self.y, target_x - self.x)
         self.x = target_x
         self.y = target_y
         self.cntrLived += 1
@@ -169,10 +166,10 @@ class Insect:
 
 
 insects = []
-num_insects = 50
+num_insects = 70
 mating_pool = []
-max_mating_pool = 50
-mutating_chance = 1 # %
+max_mating_pool = 70
+mutating_chance = 5 # %
 generation_cntr = 1
 
 for _ in range(num_insects):
@@ -181,7 +178,7 @@ for _ in range(num_insects):
 
 
 running = True
-isRunningFast = True 
+isRunningFast = False 
 
 while running:
     for event in pygame.event.get():
@@ -211,30 +208,36 @@ while running:
             if i.fitness >= max_fitness:
                 max_fitness = i.fitness
         avg_fitness = int(total_fitness / len(insects))
-        print("Generation: {} fitness total={} avg={} max={}".format(generation_cntr, total_fitness, avg_fitness, max_fitness))
         fp = open(results_filename, 'a')
         fp.write("{},{},{},{}\n".format(generation_cntr, total_fitness, avg_fitness, max_fitness))
         fp.close()
 
         for i in insects:
-            i.desired_mating_slots = i.fitness 
-            # above average score is rewarded with extra mating slots
-            if i.fitness > avg_fitness:
-                i.extra_mating_slots = (i.fitness - avg_fitness) ** 2
-                i.desired_mating_slots += i.extra_mating_slots
-            total_mating_slots += i.desired_mating_slots
+            if i.fitness >= 3:
+                i.desiredMatingSlots = i.fitness - 1 
+                # above average score is rewarded with extra mating slots
+                if i.fitness > avg_fitness:
+                    i.extra_mating_slots = (i.fitness - avg_fitness) ** 2
+                    i.desiredMatingSlots += i.extra_mating_slots
+            total_mating_slots += i.desiredMatingSlots
             
         # mating phase
         mating_pool = []
-        for i in insects:
-            mating_slots = round(max_mating_pool * i.desired_mating_slots / total_mating_slots)
-            print("Individual {} ({}/{}) fed: {} lived: {}, desired mating slots: {} actual: {}".format(
-                i.id, i.parentAid, i.parentBid, i.fitness, i.cntrLived, i.desired_mating_slots, mating_slots
-                ))
-            for c in range(mating_slots):
-                mating_pool.append(i)
+        if total_mating_slots > 0:
+            for i in insects:
+                mating_slots = round(max_mating_pool * i.desiredMatingSlots / total_mating_slots)
+                print("Individual {} ({}/{}) fed: {} lived: {}, desired mating slots: {} actual: {}".format(
+                    i.id, i.parentAid, i.parentBid, i.fitness, i.cntrLived, i.desiredMatingSlots, mating_slots
+                    ))
+                for c in range(mating_slots):
+                    mating_pool.append(i)
+        print("Generation: {} fitness total={} avg={} max={}".format(generation_cntr, total_fitness, avg_fitness, max_fitness))
+        print("Mating pool size: {}/{}".format(len(mating_pool), max_mating_pool))
 
-        print("Mating pool size: {}".format(len(mating_pool)))
+        # add blank mates if previous generation was useless
+        while len(mating_pool) < max_mating_pool:
+            mating_pool.append(Insect())
+
         next_generation = []
         for _ in range(num_insects):
             parent1 = random.choice(mating_pool)
@@ -243,6 +246,9 @@ while running:
             kid.mutate()
             next_generation.append(kid)
 
+        # add some blanks for the sake of randomness
+        for _ in range(5):
+            next_generation.append(Insect())
         insects = next_generation
         generation_cntr += 1
         
